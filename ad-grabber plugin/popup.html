@@ -1,0 +1,264 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      width: 320px;
+      font-family: 'Segoe UI', Arial, sans-serif;
+      font-size: 13px;
+      background: #1a1a1a;
+      color: #ccc;
+    }
+
+    .header {
+      background: #2c2c2c;
+      padding: 10px 14px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      border-bottom: 1px solid #444;
+    }
+    .header .logo  { font-size: 18px; }
+    .header .title { font-weight: 600; font-size: 14px; color: #fff; }
+
+    .server-row {
+      padding: 8px 14px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      border-bottom: 1px solid #2a2a2a;
+      font-size: 11px;
+    }
+    .dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+    .dot.green { background: #4caf50; }
+    .dot.red   { background: #f44336; }
+    .dot.grey  { background: #666; }
+
+    .section {
+      padding: 10px 14px;
+      border-bottom: 1px solid #2a2a2a;
+    }
+    .section-label {
+      font-size: 10px;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: #666;
+      margin-bottom: 6px;
+    }
+
+    select {
+      width: 100%;
+      background: #2c2c2c;
+      color: #ddd;
+      border: 1px solid #444;
+      border-radius: 4px;
+      padding: 6px 8px;
+      font-size: 12px;
+      font-family: inherit;
+      cursor: pointer;
+      appearance: auto;
+    }
+    select:disabled { opacity: 0.4; cursor: default; }
+    select:focus { outline: none; border-color: #0078d4; }
+
+    .folder-path {
+      font-size: 11px;
+      color: #888;
+      margin-top: 5px;
+      word-break: break-all;
+      line-height: 1.4;
+    }
+
+    /* collapsible add-project panel */
+    .add-toggle {
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      cursor: pointer;
+      font-size: 11px;
+      color: #666;
+      margin-top: 8px;
+      user-select: none;
+    }
+    .add-toggle:hover { color: #aaa; }
+    .add-toggle .arrow { font-size: 9px; transition: transform 0.15s; }
+    .add-toggle.open .arrow { transform: rotate(90deg); }
+
+    .add-panel {
+      display: none;
+      margin-top: 8px;
+      padding-top: 8px;
+      border-top: 1px solid #2a2a2a;
+    }
+    .add-panel.open { display: block; }
+
+    .add-row {
+      display: flex;
+      gap: 6px;
+      margin-bottom: 6px;
+    }
+    .add-row input[type=text] {
+      flex: 1;
+      background: #252525;
+      color: #ddd;
+      border: 1px solid #444;
+      border-radius: 4px;
+      padding: 5px 8px;
+      font-size: 12px;
+      font-family: inherit;
+    }
+    .add-row input[type=text]:focus { outline: none; border-color: #0078d4; }
+    .add-row input[type=text]::placeholder { color: #555; }
+
+    .btn-sm {
+      background: #333;
+      color: #ccc;
+      border: 1px solid #444;
+      border-radius: 4px;
+      padding: 5px 10px;
+      font-size: 11px;
+      font-family: inherit;
+      cursor: pointer;
+      white-space: nowrap;
+    }
+    .btn-sm:hover { background: #444; }
+    .btn-sm.primary { background: #0078d4; color: #fff; border-color: #0078d4; }
+    .btn-sm.primary:hover { background: #106ebe; }
+
+    .or-divider {
+      text-align: center;
+      font-size: 10px;
+      color: #444;
+      margin: 6px 0;
+    }
+
+    /* grab button */
+    .grab-area { padding: 12px 14px; }
+    button.grab {
+      width: 100%;
+      padding: 10px;
+      background: #0078d4;
+      color: #fff;
+      border: none;
+      border-radius: 4px;
+      font-size: 13px;
+      font-family: inherit;
+      cursor: pointer;
+      font-weight: 600;
+    }
+    button.grab:hover:not(:disabled) { background: #106ebe; }
+    button.grab:disabled { background: #444; color: #777; cursor: default; }
+
+    .shortcut-hint { text-align: center; font-size: 10px; color: #555; margin-top: 5px; }
+
+    /* capture-html toggle row */
+    .toggle-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      cursor: pointer;
+      user-select: none;
+    }
+    .toggle-row span { font-size: 12px; color: #bbb; }
+    .toggle-row .hint { font-size: 10px; color: #555; margin-top: 2px; }
+
+    .switch { position: relative; display: inline-block; width: 34px; height: 18px; flex-shrink: 0; }
+    .switch input { opacity: 0; width: 0; height: 0; }
+    .slider {
+      position: absolute; inset: 0;
+      background: #444; border-radius: 18px;
+      transition: background 0.2s;
+    }
+    .slider::before {
+      content: "";
+      position: absolute;
+      width: 12px; height: 12px;
+      left: 3px; bottom: 3px;
+      background: #888; border-radius: 50%;
+      transition: transform 0.2s, background 0.2s;
+    }
+    .switch input:checked + .slider { background: #1a4a1a; }
+    .switch input:checked + .slider::before { transform: translateX(16px); background: #4caf50; }
+
+    .status-bar {
+      padding: 6px 14px;
+      font-size: 11px;
+      color: #888;
+      min-height: 26px;
+      border-top: 1px solid #2a2a2a;
+    }
+    .status-bar.ok  { color: #4caf50; }
+    .status-bar.err { color: #f44336; }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <span class="logo">📷</span>
+    <span class="title">Ad Grabber</span>
+  </div>
+
+  <div class="server-row">
+    <div class="dot grey" id="dot"></div>
+    <span id="server-text">Connecting to server…</span>
+  </div>
+
+  <div class="section">
+    <div class="section-label">Active Project</div>
+    <select id="project-select" disabled>
+      <option value="">Loading…</option>
+    </select>
+    <div class="folder-path" id="captures-path">—</div>
+
+    <!-- collapsible: open existing folder or create new -->
+    <div class="add-toggle" id="add-toggle">
+      <span class="arrow">▶</span> Add / New Project
+    </div>
+    <div class="add-panel" id="add-panel">
+
+      <div class="section-label" style="margin-top:4px;">Open existing folder</div>
+      <div class="add-row">
+        <input type="text" id="folder-path-input" placeholder="Paste full folder path…">
+        <button class="btn-sm primary" id="open-folder-btn">Open</button>
+      </div>
+
+      <div class="or-divider">— or create new —</div>
+
+      <div class="section-label">New project name</div>
+      <div class="add-row">
+        <input type="text" id="new-name-input" placeholder="e.g. Kitchen appliances">
+        <button class="btn-sm primary" id="create-btn">Create</button>
+      </div>
+      <div class="folder-path" id="new-project-hint">
+        Will be created in: …/projects/&lt;name&gt;
+      </div>
+    </div>
+  </div>
+
+  <div class="section">
+    <label class="toggle-row" for="capture-html-toggle">
+      <div>
+        <div>Capture full HTML</div>
+        <div class="hint">Increases file size from ~30 KB to ~3 MB</div>
+      </div>
+      <label class="switch">
+        <input type="checkbox" id="capture-html-toggle">
+        <span class="slider"></span>
+      </label>
+    </label>
+  </div>
+
+  <div class="grab-area">
+    <button class="grab" id="grab-btn" disabled>Grab This Page</button>
+    <div class="shortcut-hint">
+      Open popup: <strong>Ctrl+Shift+Y</strong> &nbsp;·&nbsp; Quick grab: <strong>Ctrl+Shift+U</strong>
+    </div>
+  </div>
+
+  <div class="status-bar" id="status"></div>
+
+  <script src="popup.js"></script>
+</body>
+</html>
