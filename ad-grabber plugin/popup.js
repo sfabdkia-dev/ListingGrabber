@@ -4,6 +4,7 @@ const dot            = document.getElementById("dot");
 const serverText     = document.getElementById("server-text");
 const projectSelect  = document.getElementById("project-select");
 const capturesPath   = document.getElementById("captures-path");
+const refreshBtn     = document.getElementById("refresh-btn");
 const grabBtn        = document.getElementById("grab-btn");
 const statusBar      = document.getElementById("status");
 const captureHtmlToggle = document.getElementById("capture-html-toggle");
@@ -54,22 +55,7 @@ async function loadState() {
     defaultProjectsPath = (active.path || "").replace(/[/\\][^/\\]+$/, "") + "/projects";
     newProjectHint.textContent = "Will be created in: " + defaultProjectsPath + "/<name>";
 
-    // Populate dropdown
-    projectSelect.innerHTML = "";
-    projectSelect.disabled = false;
-    const seen = new Set();
-
-    if (active.path) {
-      projectSelect.appendChild(new Option(active.name || "Default", active.path, true, true));
-      seen.add(active.path);
-    }
-    for (const r of (recent_projects || [])) {
-      if (!seen.has(r.path)) {
-        projectSelect.appendChild(new Option(r.name, r.path));
-        seen.add(r.path);
-      }
-    }
-
+    populateDropdown(active, recent_projects);
     capturesPath.textContent = active.captures_dir || "—";
 
   } catch {
@@ -82,6 +68,48 @@ async function loadState() {
     capturesPath.textContent = "—";
   }
 }
+
+function populateDropdown(active, projects) {
+  projectSelect.innerHTML = "";
+  projectSelect.disabled = false;
+  const seen = new Set();
+
+  if (active && active.path) {
+    projectSelect.appendChild(new Option(active.name || "Default", active.path, true, true));
+    seen.add(active.path);
+  }
+  for (const r of (projects || [])) {
+    if (!seen.has(r.path)) {
+      projectSelect.appendChild(new Option(r.name, r.path));
+      seen.add(r.path);
+    }
+  }
+}
+
+// ── refresh: rescan the projects folder on demand ────────────────────────────
+
+refreshBtn.addEventListener("click", async () => {
+  if (!serverOnline) return;
+  refreshBtn.disabled = true;
+  refreshBtn.classList.add("spinning");
+  setStatus("Rescanning projects folder…");
+  try {
+    const [statusRes, scanRes] = await Promise.all([
+      fetch(SERVER),
+      fetch(SERVER + "/scan-projects"),
+    ]);
+    const active = await statusRes.json();
+    const { recent_projects } = await scanRes.json();
+    populateDropdown(active, recent_projects);
+    setStatus(`✓ Found ${recent_projects.length} project(s)`, "ok");
+  } catch (e) {
+    setStatus("✗ " + e.message, "err");
+  } finally {
+    refreshBtn.classList.remove("spinning");
+    refreshBtn.disabled = false;
+    clearStatusAfter();
+  }
+});
 
 // ── switch project via dropdown ───────────────────────────────────────────────
 

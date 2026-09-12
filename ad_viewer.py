@@ -4,13 +4,14 @@ On launch: auto-loads the last active project (or the root folder if data exists
 Then opens a table UI with edit, delete, add-column, and project management.
 """
 
+import csv
 import json
 import datetime
 import tkinter as tk
 from tkinter import ttk, messagebox, simpledialog, filedialog
 from pathlib import Path
 
-from parse_ad import parse_marketplace_ad
+from parse_capture import parse_capture
 
 APP_DIR = Path(__file__).resolve().parent
 CONFIG_FILE = APP_DIR / "active_project.json"    # shared with Capture_server.py
@@ -37,6 +38,9 @@ def save_settings(settings):
 
 def write_active_config(name, project_path):
     project_path = Path(project_path)
+    # Guard: never store a captures subfolder as the project root
+    if project_path.name.lower() == "captures" and project_path.parent.exists():
+        project_path = project_path.parent
     cfg = {
         "name": name,
         "path": str(project_path),
@@ -115,7 +119,7 @@ def process_new_captures(records, url_index, captures_dir):
             if path.name in processed:
                 continue
             try:
-                ad = parse_marketplace_ad(str(path))
+                ad = parse_capture(str(path))
                 ad["source_file"] = path.name
                 url = ad.get("url")
                 if url and url in url_index:
@@ -197,11 +201,13 @@ class AdDatabaseApp(tk.Tk):
 
         tk.Button(bar, text="⟳  Process New",  command=self._run_process,      **btn).pack(side=tk.LEFT, padx=(6, 2))
         ttk.Separator(bar, orient="vertical").pack(side=tk.LEFT, fill=tk.Y, padx=4)
-        tk.Button(bar, text="＋  Add Column",   command=self._add_column,       **btn).pack(side=tk.LEFT, padx=2)
-        tk.Button(bar, text="✎  Edit Cell",     command=self._edit_selected_cell, **btn).pack(side=tk.LEFT, padx=2)
-        tk.Button(bar, text="🗑  Delete",        command=self._delete_selected,  **btn).pack(side=tk.LEFT, padx=2)
+        tk.Button(bar, text="＋  Add Column",    command=self._add_column,         **btn).pack(side=tk.LEFT, padx=2)
+        tk.Button(bar, text="－  Remove Column", command=self._remove_column,      **btn).pack(side=tk.LEFT, padx=2)
+        tk.Button(bar, text="✎  Edit Cell",      command=self._edit_selected_cell, **btn).pack(side=tk.LEFT, padx=2)
+        tk.Button(bar, text="🗑  Delete",         command=self._delete_selected,    **btn).pack(side=tk.LEFT, padx=2)
         ttk.Separator(bar, orient="vertical").pack(side=tk.LEFT, fill=tk.Y, padx=4)
-        tk.Button(bar, text="💾  Save",          command=self._save,             **btn).pack(side=tk.LEFT, padx=2)
+        tk.Button(bar, text="💾  Save",           command=self._save,               **btn).pack(side=tk.LEFT, padx=2)
+        tk.Button(bar, text="📤  Export CSV",     command=self._export_csv,         **btn).pack(side=tk.LEFT, padx=2)
 
         self._project_label_var = tk.StringVar(value="No project — use File menu")
         tk.Label(bar, textvariable=self._project_label_var, bg="#2c2c2c",
@@ -451,6 +457,91 @@ class AdDatabaseApp(tk.Tk):
         self._save()
         self._refresh_table()
         self.status_var.set(f"Column '{name}' added to all records.")
+
+    # ── remove column ─────────────────────────────────────────────────────────
+
+    def _remove_column(self):
+        if not self._project_path:
+            messagebox.showinfo("No Project", "Open or create a project first.")
+            return
+        if not self.columns:
+            messagebox.showinfo("Remove Column", "No columns to remove.")
+            return
+
+        dlg = tk.Toplevel(self)
+        dlg.title("Remove Column")
+        dlg.geometry("320x360")
+        dlg.resizable(False, True)
+        dlg.grab_set()
+        dlg.transient(self)
+
+        tk.Label(dlg, text="Select columns to remove:",
+                 font=("Segoe UI", 10, "bold")).pack(anchor=tk.W, padx=12, pady=(10, 4))
+
+        lb_frame = tk.Frame(dlg)
+        lb_frame.pack(fill=tk.BOTH, expand=True, padx=12)
+        lb = tk.Listbox(lb_frame, selectmode=tk.MULTIPLE, font=("Segoe UI", 9),
+                        activestyle="none", relief=tk.SOLID, bd=1)
+        sb = ttk.Scrollbar(lb_frame, command=lb.yview)
+        lb.configure(yscrollcommand=sb.set)
+        sb.pack(side=tk.RIGHT, fill=tk.Y)
+        lb.pack(fill=tk.BOTH, expand=True)
+        for col in self.columns:
+            lb.insert(tk.END, col)
+
+        def do_remove():
+            indices = lb.curselection()
+            if not indices:
+                dlg.destroy()
+                return
+            to_remove = {self.columns[i] for i in indices}
+            if not messagebox.askyesno(
+                    "Remove Column",
+                    f"Remove {len(to_remove)} column(s) from all records?\n\n"
+                    + "\n".join(sorted(to_remove)),
+                    parent=dlg):
+                return
+            for rec in self.records:
+                for col in to_remove:
+                    rec.pop(col, None)
+            self._rebuild_columns()
+            self._save()
+            self._refresh_table()
+            self.status_var.set(f"Removed {len(to_remove)} column(s).")
+            dlg.destroy()
+
+        bf = tk.Frame(dlg)
+        bf.pack(fill=tk.X, padx=12, pady=8)
+        tk.Button(bf, text="Remove", command=do_remove, width=10,
+                  bg="#c0392b", fg="white", relief=tk.FLAT).pack(side=tk.LEFT)
+        tk.Button(bf, text="Cancel", command=dlg.destroy, width=10,
+                  relief=tk.FLAT).pack(side=tk.LEFT, padx=6)
+        dlg.bind("<Escape>", lambda e: dlg.destroy())
+
+    # ── export CSV ────────────────────────────────────────────────────────────
+
+    def _export_csv(self):
+        if not self.records:
+            messagebox.showinfo("Export CSV", "No records to export.")
+            return
+        path = filedialog.asksaveasfilename(
+            title="Export as CSV",
+            defaultextension=".csv",
+            filetypes=[("CSV files", "*.csv"), ("All files", "*.*")],
+            initialfile=f"{self._project_name or 'ads'}_export.csv",
+            parent=self,
+        )
+        if not path:
+            return
+        try:
+            with open(path, "w", newline="", encoding="utf-8-sig") as f:
+                writer = csv.DictWriter(f, fieldnames=self.columns, extrasaction="ignore")
+                writer.writeheader()
+                for rec in self.records:
+                    writer.writerow({col: rec.get(col) or "" for col in self.columns})
+            self.status_var.set(f"Exported {len(self.records)} records to {Path(path).name}")
+        except Exception as exc:
+            messagebox.showerror("Export CSV", f"Failed to save:\n{exc}")
 
     # ── save ──────────────────────────────────────────────────────────────────
 

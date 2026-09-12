@@ -23,7 +23,9 @@ def _read_json(path):
 
 def get_active_project():
     cfg = _read_json(CONFIG_FILE)
-    if cfg.get("captures_dir"):
+    if cfg.get("path"):
+        # captures always live in the project root, never a subfolder
+        cfg["captures_dir"] = cfg["path"]
         return cfg
     default_dir = PROJECTS_DIR / "default"
     return {
@@ -41,7 +43,40 @@ def get_captures_dir():
 
 
 def get_recent_projects():
-    return _read_json(SETTINGS_FILE).get("recent_projects", [])
+    """Return the recent-projects list, filtered so stale entries (folders that
+    no longer exist, or junk paths like '.') don't appear in the popup."""
+    raw = _read_json(SETTINGS_FILE).get("recent_projects", [])
+    return [
+        r for r in raw
+        if r.get("name") and pathlib.Path(r["path"]).is_absolute()
+        and pathlib.Path(r["path"]).is_dir()
+    ]
+
+
+def get_all_projects():
+    """Scan PROJECTS_DIR for subfolders and merge with the recent list.
+
+    Recent projects appear first (preserves familiar order); any folder that
+    exists on disk but isn't in the recent list is appended after.
+    Projects opened from arbitrary paths (not inside PROJECTS_DIR) are kept
+    via the recent list and won't be missed.
+    """
+    recent = get_recent_projects()
+    recent_paths = {r["path"] for r in recent}
+
+    discovered = []
+    if PROJECTS_DIR.exists():
+        for d in sorted(PROJECTS_DIR.iterdir()):
+            if not d.is_dir():
+                continue
+            path_str = str(d)
+            if path_str in recent_paths:
+                continue
+            meta_file = d / "project.json"
+            name = _read_json(meta_file).get("name", d.name) if meta_file.exists() else d.name
+            discovered.append({"name": name, "path": path_str})
+
+    return recent + discovered
 
 
 def _add_to_recent(name, path_str, max_recent=8):
@@ -56,6 +91,9 @@ def _add_to_recent(name, path_str, max_recent=8):
 def set_active_project(project_path):
     """Switch the active project to the given folder path."""
     p = pathlib.Path(project_path)
+    # Guard: if the user accidentally opened a captures subfolder, step up to the real project root
+    if p.name.lower() == "captures" and p.parent.exists():
+        p = p.parent
     if not p.exists():
         return None, "Folder not found"
 
@@ -112,6 +150,8 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         if self.path == "/projects":
             self._send_json(200, {"recent_projects": get_recent_projects()})
+        elif self.path == "/scan-projects":
+            self._send_json(200, {"recent_projects": get_all_projects()})
         else:
             self._send_json(200, get_active_project())
 

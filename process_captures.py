@@ -9,7 +9,7 @@ import json
 import sys
 from pathlib import Path
 
-from parse_ad import parse_marketplace_ad
+from parse_capture import parse_capture
 
 APP_DIR = Path(__file__).resolve().parent
 CONFIG_FILE = APP_DIR / "active_project.json"
@@ -87,7 +87,7 @@ def main():
     added, updated = 0, 0
     for path in new_files:
         try:
-            ad = parse_marketplace_ad(str(path))
+            ad = parse_capture(str(path))
             ad["source_file"] = path.name
             url = ad.get("url")
             if url and url in url_index:

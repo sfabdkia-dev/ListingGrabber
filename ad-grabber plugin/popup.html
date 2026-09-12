@@ -64,6 +64,24 @@
     select:disabled { opacity: 0.4; cursor: default; }
     select:focus { outline: none; border-color: #0078d4; }
 
+    .project-row { display: flex; gap: 6px; align-items: stretch; }
+    .project-row select { flex: 1; }
+    .btn-icon {
+      background: #2c2c2c;
+      color: #ccc;
+      border: 1px solid #444;
+      border-radius: 4px;
+      padding: 0 9px;
+      font-size: 14px;
+      cursor: pointer;
+      flex-shrink: 0;
+      line-height: 1;
+    }
+    .btn-icon:hover:not(:disabled) { background: #383838; color: #fff; }
+    .btn-icon:disabled { opacity: 0.4; cursor: default; }
+    .btn-icon.spinning { animation: spin 0.8s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
     .folder-path {
       font-size: 11px;
       color: #888;
@@ -207,9 +225,12 @@
 
   <div class="section">
     <div class="section-label">Active Project</div>
-    <select id="project-select" disabled>
-      <option value="">Loading…</option>
-    </select>
+    <div class="project-row">
+      <select id="project-select" disabled>
+        <option value="">Loading…</option>
+      </select>
+      <button class="btn-icon" id="refresh-btn" title="Rescan projects folder">↻</button>
+    </div>
     <div class="folder-path" id="captures-path">—</div>
 
     <!-- collapsible: open existing folder or create new -->
