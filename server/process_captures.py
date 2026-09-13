@@ -1,17 +1,19 @@
 """Process all unprocessed capture files and append extracted ads to ads_database.jsonl.
 
 Usage:
-  python process_captures.py                    # uses the active project from active_project.json
-  python process_captures.py <project_folder>   # processes a specific project folder
+  python server/process_captures.py                    # uses the active project from active_project.json
+  python server/process_captures.py <project_folder>   # processes a specific project folder
 """
 
 import json
 import sys
 from pathlib import Path
 
-from parse_capture import parse_capture
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-APP_DIR = Path(__file__).resolve().parent
+from parsers.parse_router import parse_capture
+
+APP_DIR = Path(__file__).resolve().parent.parent
 CONFIG_FILE = APP_DIR / "active_project.json"
 
 

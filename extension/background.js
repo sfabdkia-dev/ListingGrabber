@@ -1,7 +1,25 @@
 // background.js
-// Handles the Ctrl+Shift+G "grab now" shortcut — grabs the page without opening the popup.
+// Handles the Ctrl+Shift+U "grab now" shortcut - grabs the page without opening the popup.
 
 const SERVER = "http://127.0.0.1:9999";
+
+const SUPPORTED_PATTERNS = [
+  { label: "Facebook Marketplace", test: url => /facebook\.com\/marketplace\/item\//i.test(url) },
+  { label: "Amazon product",       test: url => /amazon\.[a-z.]+/i.test(url) && /\/dp\/|\/gp\/product\//i.test(url) },
+];
+
+function getSupportedSite(url) {
+  return SUPPORTED_PATTERNS.find(p => p.test(url)) || null;
+}
+
+function notify(title, message) {
+  chrome.notifications.create({
+    type: "basic",
+    iconUrl: "icons/icon48.png",
+    title,
+    message,
+  });
+}
 
 async function grabCurrentTab(tabId) {
   const { captureHtml } = await chrome.storage.local.get({ captureHtml: false });
@@ -32,11 +50,16 @@ chrome.commands.onCommand.addListener(async (command) => {
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
   if (!tab) return;
 
+  if (!getSupportedSite(tab.url || "")) {
+    notify("Listing Grabber", "Not a supported page.\nOpen the product page of a supported website.");
+    return;
+  }
+
   try {
     const ok = await grabCurrentTab(tab.id);
-    await chrome.action.setBadgeText({ text: ok ? "✓" : "ERR", tabId: tab.id });
+    await chrome.action.setBadgeText({ text: ok ? "" : "ERR", tabId: tab.id });
     await chrome.action.setBadgeBackgroundColor({ color: ok ? "#2e7d32" : "#c62828", tabId: tab.id });
-  } catch {
+  } catch (e) {
     await chrome.action.setBadgeText({ text: "ERR", tabId: tab.id });
     await chrome.action.setBadgeBackgroundColor({ color: "#c62828", tabId: tab.id });
   }

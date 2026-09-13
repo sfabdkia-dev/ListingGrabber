@@ -1,0 +1,45 @@
+{
+  "manifest_version": 3,
+  "name": "Listing Grabber",
+  "version": "1.1",
+  "description": "Capture online shop product details to an active project.",
+  "permissions": ["activeTab", "scripting", "storage", "notifications"],
+  "host_permissions": [
+    "http://127.0.0.1/*",
+    "http://localhost/*",
+    "<all_urls>"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "icons": {
+    "16":  "icons/icon16.png",
+    "32":  "icons/icon32.png",
+    "48":  "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "action": {
+    "default_title": "Listing Grabber",
+    "default_popup": "popup.html",
+    "default_icon": {
+      "16":  "icons/icon16.png",
+      "32":  "icons/icon32.png",
+      "48":  "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
+  },
+  "commands": {
+    "_execute_action": {
+      "suggested_key": {
+        "default": "Ctrl+Shift+Y"
+      },
+      "description": "Open Listing Grabber popup"
+    },
+    "grab_now": {
+      "suggested_key": {
+        "default": "Ctrl+Shift+U"
+      },
+      "description": "Grab this page immediately (no popup)"
+    }
+  }
+}

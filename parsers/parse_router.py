@@ -3,8 +3,8 @@
 import json
 from pathlib import Path
 
-from parse_ad import parse_marketplace_ad
-from parse_amazon import parse_amazon_product
+from .parse_marketplace import parse_marketplace_ad
+from .parse_amazon import parse_amazon_product
 
 
 def parse_capture(json_path):

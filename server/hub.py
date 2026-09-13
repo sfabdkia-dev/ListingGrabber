@@ -1,24 +1,40 @@
-"""Facebook Marketplace Ad Database Viewer — project-aware edition.
+"""Control Hub.
 
-On launch: auto-loads the last active project (or the root folder if data exists there).
-Then opens a table UI with edit, delete, add-column, and project management.
+Single entry point for the whole tool:
+  - Start / stop the capture server with live status indicator
+  - Live capture log (polls the captures folder for new files)
+  - Auto-process toggle (parse + add to DB as captures arrive)
+  - Project switcher dropdown in the toolbar
+  - Open current project folder in Explorer
+  - Full ad database viewer with edit, delete, add/remove column, export
 """
 
 import csv
 import json
+import socket
+import subprocess
+import sys
 import datetime
+import webbrowser
 import tkinter as tk
 from tkinter import ttk, messagebox, simpledialog, filedialog
 from pathlib import Path
 
-from parse_capture import parse_capture
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-APP_DIR = Path(__file__).resolve().parent
-CONFIG_FILE = APP_DIR / "active_project.json"    # shared with Capture_server.py
+from parsers.parse_router import parse_capture
+
+APP_DIR = Path(__file__).resolve().parent.parent
+CONFIG_FILE = APP_DIR / "active_project.json"
 SETTINGS_FILE = APP_DIR / "app_settings.json"
 
 HIDDEN_COLS = {"source_file"}
 MAX_RECENT = 8
+FOLDER_COL = "__folder__"
+
+SERVER_HOST = "127.0.0.1"
+SERVER_PORT = 9999
+POLL_MS = 1500          # server-status + capture-log poll interval
 
 
 # ── settings / config helpers ─────────────────────────────────────────────────
@@ -38,7 +54,6 @@ def save_settings(settings):
 
 def write_active_config(name, project_path):
     project_path = Path(project_path)
-    # Guard: never store a captures subfolder as the project root
     if project_path.name.lower() == "captures" and project_path.parent.exists():
         project_path = project_path.parent
     cfg = {
@@ -78,10 +93,24 @@ def create_project_folder(name, parent_dir):
     return folder
 
 
+def discover_all_projects(settings):
+    """Merge recent list with on-disk scan of PROJECTS_DIR, skipping missing folders."""
+    recent = [r for r in settings.get("recent_projects", []) if Path(r["path"]).is_dir()]
+    recent_paths = {r["path"] for r in recent}
+    discovered = []
+    projects_dir = APP_DIR / "projects"
+    if projects_dir.exists():
+        for d in sorted(projects_dir.iterdir()):
+            if not d.is_dir() or str(d) in recent_paths:
+                continue
+            name = project_name_from_folder(d)
+            discovered.append({"name": name, "path": str(d)})
+    return recent + discovered
+
+
 # ── database helpers ──────────────────────────────────────────────────────────
 
 def load_records(db_path):
-    """Load records, keeping the latest entry for each URL (in-place replacement)."""
     records, url_index = [], {}
     db_path = Path(db_path)
     if db_path.exists():
@@ -93,7 +122,7 @@ def load_records(db_path):
                         rec = json.loads(line)
                         url = rec.get("url")
                         if url and url in url_index:
-                            records[url_index[url]] = rec  # replace with newer
+                            records[url_index[url]] = rec
                         else:
                             if url:
                                 url_index[url] = len(records)
@@ -110,7 +139,6 @@ def save_records(records, db_path):
 
 
 def process_new_captures(records, url_index, captures_dir):
-    """Parse unprocessed captures, adding new ads or updating existing ones by URL."""
     processed = {r["source_file"] for r in records if "source_file" in r}
     new_records, log = [], []
     captures_dir = Path(captures_dir)
@@ -123,7 +151,7 @@ def process_new_captures(records, url_index, captures_dir):
                 ad["source_file"] = path.name
                 url = ad.get("url")
                 if url and url in url_index:
-                    records[url_index[url]] = ad  # update existing record in-place
+                    records[url_index[url]] = ad
                     log.append(f"  ↻ {path.name}  →  updated '{ad.get('title', '(no title)')[:50]}'")
                 else:
                     if url:
@@ -135,31 +163,64 @@ def process_new_captures(records, url_index, captures_dir):
     return new_records, log
 
 
+# ── server helpers ────────────────────────────────────────────────────────────
+
+def is_server_running():
+    try:
+        with socket.create_connection((SERVER_HOST, SERVER_PORT), timeout=0.3):
+            return True
+    except OSError:
+        return False
+
+
+def start_server():
+    subprocess.Popen(
+        ["cmd", "/c", "start", "Capture Server",
+         "powershell", "-NoExit", "-Command",
+         f"Set-Location '{APP_DIR}'; python server/capture_server.py"],
+        cwd=str(APP_DIR),
+        creationflags=subprocess.DETACHED_PROCESS,
+    )
+
+
+def stop_server():
+    subprocess.run(
+        ["taskkill", "/F", "/FI", "WINDOWTITLE eq Capture Server"],
+        capture_output=True,
+    )
+
+
 # ── main application ──────────────────────────────────────────────────────────
 
 class AdDatabaseApp(tk.Tk):
     def __init__(self):
         super().__init__()
-        self.title("Facebook Marketplace Ad Database")
-        self.geometry("1300x720")
-        self.minsize(800, 400)
+        self.title("Control Hub")
+        self.geometry("1340x780")
+        self.minsize(900, 500)
         self.records = []
         self.columns = []
+        self._visible_columns = []
         self._sort_col = None
         self._sort_asc = True
         self._project_path = None
         self._project_name = None
         self._settings = load_settings()
+        self._auto_process_var = tk.BooleanVar(value=True)
+        self._seen_captures: set = set()   # filenames seen by the log poller
         self._build_ui()
         self._auto_load_project()
+        self._poll()   # start polling loop
 
-    # ── UI ────────────────────────────────────────────────────────────────────
+    # ── UI construction ───────────────────────────────────────────────────────
 
     def _build_ui(self):
         self._build_menu()
+        self._build_server_panel()
         self._build_toolbar()
-        self._build_table()
+        self._build_table(self)
         self._build_statusbar()
+        self._build_log_window()
 
     def _build_menu(self):
         menubar = tk.Menu(self)
@@ -175,9 +236,22 @@ class AdDatabaseApp(tk.Tk):
         file_menu.add_separator()
         file_menu.add_command(label="Exit", command=self.quit)
 
+        view_menu = tk.Menu(menubar, tearoff=0)
+        menubar.add_cascade(label="View", menu=view_menu)
+        view_menu.add_command(label="Capture Log",
+                              accelerator="Ctrl+L",
+                              command=self._show_log_window)
+
+        help_menu = tk.Menu(menubar, tearoff=0)
+        menubar.add_cascade(label="Help", menu=help_menu)
+        help_menu.add_command(
+            label="Project Repository",
+            command=lambda: webbrowser.open("https://github.com/sfabdkia-dev/Semi-autoPageGrabber"),
+        )
+
         self.bind_all("<Control-n>", lambda e: self._new_project())
         self.bind_all("<Control-o>", lambda e: self._open_project())
-
+        self.bind_all("<Control-l>", lambda e: self._show_log_window())
         self._refresh_recent_menu()
 
     def _refresh_recent_menu(self):
@@ -192,6 +266,41 @@ class AdDatabaseApp(tk.Tk):
                 command=lambda p=r["path"]: self._load_project(Path(p)),
             )
 
+    def _build_server_panel(self):
+        panel = tk.Frame(self, bg="#1a1a2e", pady=6)
+        panel.pack(fill=tk.X)
+
+        # Status indicator dot
+        self._status_canvas = tk.Canvas(panel, width=14, height=14,
+                                        bg="#1a1a2e", highlightthickness=0)
+        self._status_canvas.pack(side=tk.LEFT, padx=(10, 4))
+        self._status_dot = self._status_canvas.create_oval(2, 2, 12, 12, fill="#555", outline="")
+
+        self._server_status_var = tk.StringVar(value="Server: checking…")
+        tk.Label(panel, textvariable=self._server_status_var, bg="#1a1a2e",
+                 fg="#ccc", font=("Segoe UI", 9, "bold")).pack(side=tk.LEFT, padx=(0, 12))
+
+        sbtn = {"bg": "#2e4057", "fg": "white", "relief": tk.FLAT,
+                "padx": 10, "pady": 3, "cursor": "hand2", "font": ("Segoe UI", 9)}
+
+        self._start_btn = tk.Button(panel, text="▶  Start Server", command=self._start_server, **sbtn)
+        self._start_btn.pack(side=tk.LEFT, padx=2)
+
+        self._stop_btn = tk.Button(panel, text="■  Stop Server", command=self._stop_server, **sbtn)
+        self._stop_btn.pack(side=tk.LEFT, padx=2)
+
+        ttk.Separator(panel, orient="vertical").pack(side=tk.LEFT, fill=tk.Y, padx=8)
+
+        tk.Checkbutton(
+            panel, text="Auto-process captures", variable=self._auto_process_var,
+            bg="#1a1a2e", fg="#ccc", selectcolor="#333",
+            activebackground="#1a1a2e", activeforeground="white",
+            font=("Segoe UI", 9),
+        ).pack(side=tk.LEFT, padx=4)
+
+        tk.Label(panel, text="Port 9999", bg="#1a1a2e",
+                 fg="#555", font=("Segoe UI", 8)).pack(side=tk.RIGHT, padx=10)
+
     def _build_toolbar(self):
         bar = tk.Frame(self, bg="#2c2c2c", pady=4)
         bar.pack(fill=tk.X)
@@ -199,22 +308,69 @@ class AdDatabaseApp(tk.Tk):
         btn = {"bg": "#444", "fg": "white", "relief": tk.FLAT,
                "padx": 10, "pady": 4, "cursor": "hand2", "font": ("Segoe UI", 9)}
 
-        tk.Button(bar, text="⟳  Process New",  command=self._run_process,      **btn).pack(side=tk.LEFT, padx=(6, 2))
+        tk.Button(bar, text="⟳  Refresh",  command=self._run_process,       **btn).pack(side=tk.LEFT, padx=(6, 2))
         ttk.Separator(bar, orient="vertical").pack(side=tk.LEFT, fill=tk.Y, padx=4)
-        tk.Button(bar, text="＋  Add Column",    command=self._add_column,         **btn).pack(side=tk.LEFT, padx=2)
-        tk.Button(bar, text="－  Remove Column", command=self._remove_column,      **btn).pack(side=tk.LEFT, padx=2)
-        tk.Button(bar, text="✎  Edit Cell",      command=self._edit_selected_cell, **btn).pack(side=tk.LEFT, padx=2)
-        tk.Button(bar, text="🗑  Delete",         command=self._delete_selected,    **btn).pack(side=tk.LEFT, padx=2)
+        tk.Button(bar, text="＋  Add Column",    command=self._add_column,          **btn).pack(side=tk.LEFT, padx=2)
+        tk.Button(bar, text="✏  Edit Columns",   command=self._edit_columns,        **btn).pack(side=tk.LEFT, padx=2)
+        tk.Button(bar, text="🗑  Delete",         command=self._delete_selected,     **btn).pack(side=tk.LEFT, padx=2)
         ttk.Separator(bar, orient="vertical").pack(side=tk.LEFT, fill=tk.Y, padx=4)
-        tk.Button(bar, text="💾  Save",           command=self._save,               **btn).pack(side=tk.LEFT, padx=2)
-        tk.Button(bar, text="📤  Export CSV",     command=self._export_csv,         **btn).pack(side=tk.LEFT, padx=2)
+        tk.Button(bar, text="💾  Save",           command=self._save,                **btn).pack(side=tk.LEFT, padx=2)
+        tk.Button(bar, text="📤  Export CSV",     command=self._export_csv,          **btn).pack(side=tk.LEFT, padx=2)
+        ttk.Separator(bar, orient="vertical").pack(side=tk.LEFT, fill=tk.Y, padx=4)
+        tk.Button(bar, text="📁  Open Folder",    command=self._open_project_folder, **btn).pack(side=tk.LEFT, padx=2)
 
-        self._project_label_var = tk.StringVar(value="No project — use File menu")
-        tk.Label(bar, textvariable=self._project_label_var, bg="#2c2c2c",
-                 fg="#aaa", font=("Segoe UI", 9), padx=10).pack(side=tk.RIGHT)
+        # Project switcher dropdown (right side of toolbar)
+        right = tk.Frame(bar, bg="#2c2c2c")
+        right.pack(side=tk.RIGHT, padx=6)
 
-    def _build_table(self):
-        frame = tk.Frame(self)
+        tk.Label(right, text="Project:", bg="#2c2c2c", fg="#aaa",
+                 font=("Segoe UI", 9)).pack(side=tk.LEFT)
+
+        self._project_combo_var = tk.StringVar()
+        self._project_combo = ttk.Combobox(
+            right, textvariable=self._project_combo_var,
+            state="readonly", width=28, font=("Segoe UI", 9),
+        )
+        self._project_combo.pack(side=tk.LEFT, padx=(4, 0))
+        self._project_combo.bind("<<ComboboxSelected>>", self._on_project_combo_select)
+        self._combo_projects = []
+        self._refresh_project_combo()
+
+    def _build_log_window(self):
+        """Create the capture log as a detached Toplevel, hidden by default."""
+        win = tk.Toplevel(self)
+        win.title("Capture Log")
+        win.geometry("680x400")
+        win.resizable(True, True)
+        win.withdraw()   # hidden until the user opens it
+        win.protocol("WM_DELETE_WINDOW", win.withdraw)  # close hides, not destroys
+        self._log_win = win
+
+        tk.Label(win, text="Capture Log", font=("Segoe UI", 10, "bold"),
+                 padx=10, pady=6, anchor=tk.W).pack(fill=tk.X)
+
+        self._log_text = tk.Text(
+            win, bg="#1e1e1e", fg="#c8e6c9", insertbackground="white",
+            font=("Consolas", 9), relief=tk.FLAT, state=tk.DISABLED,
+            wrap=tk.WORD, padx=8, pady=6,
+        )
+        log_vsb = ttk.Scrollbar(win, orient="vertical", command=self._log_text.yview)
+        self._log_text.configure(yscrollcommand=log_vsb.set)
+        log_vsb.pack(side=tk.RIGHT, fill=tk.Y)
+        self._log_text.pack(fill=tk.BOTH, expand=True)
+
+        tk.Button(
+            win, text="Clear log", bg="#2c2c2c", fg="#aaa",
+            relief=tk.FLAT, font=("Segoe UI", 8), cursor="hand2",
+            command=self._clear_log,
+        ).pack(fill=tk.X)
+
+    def _show_log_window(self):
+        self._log_win.deiconify()
+        self._log_win.lift()
+
+    def _build_table(self, parent):
+        frame = tk.Frame(parent)
         frame.pack(fill=tk.BOTH, expand=True, padx=6, pady=(4, 0))
 
         self.tree = ttk.Treeview(frame, selectmode="extended", show="headings")
@@ -230,7 +386,8 @@ class AdDatabaseApp(tk.Tk):
         style.configure("Treeview.Heading",               font=("Segoe UI", 9, "bold"))
         style.map("Treeview", background=[("selected", "#0078d4")])
 
-        self.tree.bind("<Double-1>", self._on_double_click)
+        self.tree.bind("<ButtonRelease-1>", self._on_single_click)
+        self.tree.bind("<Double-1>",        self._on_double_click)
 
     def _build_statusbar(self):
         bar = tk.Frame(self, bg="#f0f0f0", bd=1, relief=tk.SUNKEN)
@@ -239,10 +396,106 @@ class AdDatabaseApp(tk.Tk):
         tk.Label(bar, textvariable=self.status_var, anchor=tk.W,
                  bg="#f0f0f0", font=("Segoe UI", 8), padx=6).pack(side=tk.LEFT)
 
+    # ── polling loop ──────────────────────────────────────────────────────────
+
+    def _poll(self):
+        self._poll_server_status()
+        self._poll_captures()
+        self.after(POLL_MS, self._poll)
+
+    def _poll_server_status(self):
+        running = is_server_running()
+        if running:
+            self._status_canvas.itemconfig(self._status_dot, fill="#4caf50")
+            self._server_status_var.set("Server: running")
+            self._start_btn.config(state=tk.DISABLED)
+            self._stop_btn.config(state=tk.NORMAL)
+        else:
+            self._status_canvas.itemconfig(self._status_dot, fill="#e53935")
+            self._server_status_var.set("Server: stopped")
+            self._start_btn.config(state=tk.NORMAL)
+            self._stop_btn.config(state=tk.DISABLED)
+
+    def _poll_captures(self):
+        if not self._project_path or not self._project_path.exists():
+            return
+
+        new_files = []
+        for path in sorted(self._project_path.glob("*_capture.json")):
+            if path.name not in self._seen_captures:
+                self._seen_captures.add(path.name)
+                new_files.append(path)
+
+        if not new_files:
+            return
+
+        for path in new_files:
+            try:
+                data = json.loads(path.read_text(encoding="utf-8"))
+                url = data.get("url", "")[:70]
+                ts = datetime.datetime.now().strftime("%H:%M:%S")
+                self._log(f"[{ts}] {path.name}\n  {url}\n")
+            except Exception:
+                self._log(f"  {path.name}\n")
+
+        if self._auto_process_var.get():
+            _, url_index = load_records(self._project_path / "ads_database.jsonl")
+            new_recs, log_lines = process_new_captures(self.records, url_index, self._project_path)
+            if new_recs:
+                self.records.extend(new_recs)
+                save_records(self.records, self._project_path / "ads_database.jsonl")
+                self._rebuild_columns()
+                self._refresh_table()
+                self.status_var.set(
+                    f"Auto-processed {len(new_recs)} new capture(s). Total: {len(self.records)}")
+                for line in log_lines:
+                    self._log(f"  ✓ {line.strip()}\n")
+
+    def _log(self, text):
+        self._log_text.config(state=tk.NORMAL)
+        self._log_text.insert(tk.END, text)
+        self._log_text.see(tk.END)
+        self._log_text.config(state=tk.DISABLED)
+
+    def _clear_log(self):
+        self._log_text.config(state=tk.NORMAL)
+        self._log_text.delete("1.0", tk.END)
+        self._log_text.config(state=tk.DISABLED)
+
+    # ── server controls ───────────────────────────────────────────────────────
+
+    def _start_server(self):
+        self._log(f"[{datetime.datetime.now().strftime('%H:%M:%S')}] Starting capture server…\n")
+        start_server()
+
+    def _stop_server(self):
+        self._log(f"[{datetime.datetime.now().strftime('%H:%M:%S')}] Stopping capture server…\n")
+        stop_server()
+
+    # ── project combo ─────────────────────────────────────────────────────────
+
+    def _refresh_project_combo(self):
+        all_projects = discover_all_projects(self._settings)
+        names = [f"{p['name']}  ({Path(p['path']).name})" for p in all_projects]
+        self._project_combo["values"] = names
+        self._combo_projects = all_projects
+
+        if self._project_path:
+            for i, p in enumerate(all_projects):
+                if p["path"] == str(self._project_path):
+                    self._project_combo.current(i)
+                    break
+
+    def _on_project_combo_select(self, event):
+        idx = self._project_combo.current()
+        if idx < 0 or idx >= len(self._combo_projects):
+            return
+        chosen = self._combo_projects[idx]
+        self._load_project(Path(chosen["path"]))
+
     # ── project management ────────────────────────────────────────────────────
 
     def _auto_load_project(self):
-        # 1. Try last active project from shared config
         if CONFIG_FILE.exists():
             try:
                 cfg = json.loads(CONFIG_FILE.read_text(encoding="utf-8"))
@@ -253,14 +506,12 @@ class AdDatabaseApp(tk.Tk):
             except Exception:
                 pass
 
-        # 2. Fall back to most recent in settings
         for r in self._settings.get("recent_projects", []):
             p = Path(r["path"])
             if p.exists():
                 self._load_project(p, silent=True)
                 return
 
-        # 3. Fall back to default project if it already has data
         default_dir = APP_DIR / "projects" / "default"
         if (default_dir / "ads_database.jsonl").exists() or default_dir.exists():
             self._load_project(default_dir, silent=True)
@@ -294,8 +545,12 @@ class AdDatabaseApp(tk.Tk):
         write_active_config(name, project_path)
         add_to_recent(self._settings, name, project_path)
         self._refresh_recent_menu()
+        self._refresh_project_combo()
 
         self.records, url_index = load_records(project_path / "ads_database.jsonl")
+
+        # Seed seen-captures so the poller only fires on files that arrive after this point
+        self._seen_captures = {p.name for p in project_path.glob("*_capture.json")}
 
         new_recs, log = process_new_captures(self.records, url_index, project_path)
         if new_recs or log:
@@ -307,10 +562,15 @@ class AdDatabaseApp(tk.Tk):
 
         self._rebuild_columns()
         self._refresh_table()
-        self.title(f"Facebook Marketplace Ad Database — {name}")
-        self._project_label_var.set(f"Project: {name}")
+        self.title(f"Control Hub — {name}")
         self.status_var.set(
             f"{len(self.records)} records  |  {len(self.columns)} columns  |  {project_path}")
+
+    def _open_project_folder(self):
+        if not self._project_path:
+            messagebox.showinfo("No Project", "Open or create a project first.")
+            return
+        subprocess.Popen(["explorer", str(self._project_path)])
 
     # ── data processing ───────────────────────────────────────────────────────
 
@@ -339,18 +599,24 @@ class AdDatabaseApp(tk.Tk):
         self.columns = cols
 
     def _refresh_table(self):
+        hidden = self._get_hidden_columns()
+        self._visible_columns = [c for c in self.columns if c not in hidden]
+
         self.tree.delete(*self.tree.get_children())
-        self.tree["columns"] = self.columns
+        self.tree["columns"] = [FOLDER_COL] + self._visible_columns
+
+        self.tree.heading(FOLDER_COL, text="")
+        self.tree.column(FOLDER_COL, width=28, minwidth=28, stretch=False, anchor="center")
 
         wide = {"title": 220, "description": 260, "url": 200, "listed": 180, "location": 130}
-        for col in self.columns:
+        for col in self._visible_columns:
             arrow = ("  ▲" if self._sort_asc else "  ▼") if self._sort_col == col else ""
             self.tree.heading(col, text=col.replace("_", " ").title() + arrow,
                               command=lambda c=col: self._sort_by(c))
             self.tree.column(col, width=wide.get(col, 110), minwidth=50, stretch=False)
 
         for i, rec in enumerate(self.records):
-            values = [str(rec.get(col) or "") for col in self.columns]
+            values = ["📂"] + [str(rec.get(col) or "") for col in self._visible_columns]
             self.tree.insert("", tk.END, iid=str(i), values=values,
                              tags=("even" if i % 2 == 0 else "odd",))
 
@@ -365,13 +631,47 @@ class AdDatabaseApp(tk.Tk):
 
     # ── editing ───────────────────────────────────────────────────────────────
 
+    def _on_single_click(self, event):
+        if self.tree.identify("region", event.x, event.y) != "cell":
+            return
+        col_id = self.tree.identify_column(event.x)
+        if not col_id or int(col_id[1:]) != 1:
+            return
+        row_id = self.tree.identify_row(event.y)
+        if row_id:
+            self._open_source_folder(int(row_id))
+
     def _on_double_click(self, event):
         if self.tree.identify("region", event.x, event.y) != "cell":
             return
         row_id = self.tree.identify_row(event.y)
         col_id = self.tree.identify_column(event.x)
-        if row_id and col_id:
-            self._open_editor(int(row_id), int(col_id[1:]) - 1)
+        if not row_id or not col_id:
+            return
+        col_pos = int(col_id[1:])
+        if col_pos == 1:
+            return
+        visible_col_index = col_pos - 2
+        col_name = self._visible_columns[visible_col_index]
+        all_col_index = self.columns.index(col_name)
+        if col_name == "url":
+            url = self.records[int(row_id)].get("url", "")
+            if url:
+                webbrowser.open(url)
+        else:
+            self._open_editor(int(row_id), all_col_index)
+
+    def _open_source_folder(self, rec_index):
+        if not self._project_path:
+            return
+        rec = self.records[rec_index]
+        source_file = rec.get("source_file")
+        if source_file:
+            path = self._project_path / source_file
+            if path.exists():
+                subprocess.Popen(["explorer", "/select,", str(path)])
+                return
+        subprocess.Popen(["explorer", str(self._project_path)])
 
     def _edit_selected_cell(self):
         sel = self.tree.selection()
@@ -380,7 +680,7 @@ class AdDatabaseApp(tk.Tk):
             return
         col_name = simpledialog.askstring(
             "Edit Column",
-            f"Column to edit?\n\nAvailable: {', '.join(self.columns)}",
+            f"Column to edit?\n\nAvailable: {', '.join(self._visible_columns)}",
             parent=self)
         if col_name and col_name in self.columns:
             self._open_editor(int(sel[0]), self.columns.index(col_name))
@@ -415,9 +715,9 @@ class AdDatabaseApp(tk.Tk):
 
         bf = tk.Frame(dlg)
         bf.pack(fill=tk.X, padx=12, pady=8)
-        tk.Button(bf, text="Save",   command=do_save,       width=10,
+        tk.Button(bf, text="Save",   command=do_save,     width=10,
                   bg="#0078d4", fg="white", relief=tk.FLAT).pack(side=tk.LEFT)
-        tk.Button(bf, text="Cancel", command=dlg.destroy,   width=10,
+        tk.Button(bf, text="Cancel", command=dlg.destroy, width=10,
                   relief=tk.FLAT).pack(side=tk.LEFT, padx=6)
         dlg.bind("<Return>", lambda e: do_save())
         dlg.bind("<Escape>", lambda e: dlg.destroy())
@@ -449,7 +749,7 @@ class AdDatabaseApp(tk.Tk):
             return
         name = name.strip().lower().replace(" ", "_")
         if not name or name in self.columns or name in HIDDEN_COLS:
-            messagebox.showwarning("Add Column", f"Column name invalid or already exists.")
+            messagebox.showwarning("Add Column", "Column name invalid or already exists.")
             return
         for rec in self.records:
             rec.setdefault(name, None)
@@ -458,62 +758,103 @@ class AdDatabaseApp(tk.Tk):
         self._refresh_table()
         self.status_var.set(f"Column '{name}' added to all records.")
 
-    # ── remove column ─────────────────────────────────────────────────────────
+    # ── column visibility helpers ──────────────────────────────────────────────
 
-    def _remove_column(self):
+    def _get_hidden_columns(self):
+        if not self._project_path:
+            return set()
+        key = str(self._project_path)
+        return set(self._settings.get("column_visibility", {}).get(key, []))
+
+    def _set_hidden_columns(self, hidden_set):
+        if not self._project_path:
+            return
+        key = str(self._project_path)
+        if "column_visibility" not in self._settings:
+            self._settings["column_visibility"] = {}
+        self._settings["column_visibility"][key] = sorted(hidden_set)
+        save_settings(self._settings)
+
+    # ── edit columns ──────────────────────────────────────────────────────────
+
+    def _edit_columns(self):
         if not self._project_path:
             messagebox.showinfo("No Project", "Open or create a project first.")
             return
         if not self.columns:
-            messagebox.showinfo("Remove Column", "No columns to remove.")
+            messagebox.showinfo("Edit Columns", "No columns to edit.")
             return
 
+        hidden = self._get_hidden_columns()
+
         dlg = tk.Toplevel(self)
-        dlg.title("Remove Column")
-        dlg.geometry("320x360")
+        dlg.title("Edit Columns")
+        dlg.geometry("360x460")
         dlg.resizable(False, True)
         dlg.grab_set()
         dlg.transient(self)
 
-        tk.Label(dlg, text="Select columns to remove:",
-                 font=("Segoe UI", 10, "bold")).pack(anchor=tk.W, padx=12, pady=(10, 4))
+        tk.Label(dlg, text="Toggle column visibility:",
+                 font=("Segoe UI", 10, "bold")).pack(anchor=tk.W, padx=12, pady=(10, 2))
+        tk.Label(dlg, text="Checked = visible in table. Settings are saved automatically.",
+                 font=("Segoe UI", 8), fg="#777").pack(anchor=tk.W, padx=12, pady=(0, 6))
 
-        lb_frame = tk.Frame(dlg)
-        lb_frame.pack(fill=tk.BOTH, expand=True, padx=12)
-        lb = tk.Listbox(lb_frame, selectmode=tk.MULTIPLE, font=("Segoe UI", 9),
-                        activestyle="none", relief=tk.SOLID, bd=1)
-        sb = ttk.Scrollbar(lb_frame, command=lb.yview)
-        lb.configure(yscrollcommand=sb.set)
-        sb.pack(side=tk.RIGHT, fill=tk.Y)
-        lb.pack(fill=tk.BOTH, expand=True)
+        scroll_frame = tk.Frame(dlg)
+        scroll_frame.pack(fill=tk.BOTH, expand=True, padx=12)
+
+        canvas = tk.Canvas(scroll_frame, bd=0, highlightthickness=0)
+        vsb = ttk.Scrollbar(scroll_frame, orient="vertical", command=canvas.yview)
+        canvas.configure(yscrollcommand=vsb.set)
+        vsb.pack(side=tk.RIGHT, fill=tk.Y)
+        canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+
+        inner = tk.Frame(canvas)
+        inner_id = canvas.create_window((0, 0), window=inner, anchor="nw")
+        inner.bind("<Configure>", lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
+        canvas.bind("<Configure>", lambda e: canvas.itemconfig(inner_id, width=e.width))
+
+        check_vars = {}
         for col in self.columns:
-            lb.insert(tk.END, col)
+            var = tk.BooleanVar(value=(col not in hidden))
+            check_vars[col] = var
+            tk.Checkbutton(
+                inner, text=col.replace("_", " ").title(), variable=var,
+                font=("Segoe UI", 9), anchor=tk.W,
+            ).pack(fill=tk.X, padx=4, pady=1)
 
-        def do_remove():
-            indices = lb.curselection()
-            if not indices:
+        def select_all():
+            for v in check_vars.values():
+                v.set(True)
+
+        def select_none():
+            for v in check_vars.values():
+                v.set(False)
+
+        sel_frame = tk.Frame(dlg)
+        sel_frame.pack(fill=tk.X, padx=12, pady=(4, 0))
+        tk.Button(sel_frame, text="Show All", command=select_all,
+                  font=("Segoe UI", 8), relief=tk.FLAT, bg="#e0e0e0").pack(side=tk.LEFT, padx=(0, 4))
+        tk.Button(sel_frame, text="Hide All", command=select_none,
+                  font=("Segoe UI", 8), relief=tk.FLAT, bg="#e0e0e0").pack(side=tk.LEFT)
+
+        def do_apply():
+            new_hidden = {col for col, var in check_vars.items() if not var.get()}
+            if new_hidden == hidden:
                 dlg.destroy()
                 return
-            to_remove = {self.columns[i] for i in indices}
-            if not messagebox.askyesno(
-                    "Remove Column",
-                    f"Remove {len(to_remove)} column(s) from all records?\n\n"
-                    + "\n".join(sorted(to_remove)),
-                    parent=dlg):
+            if not new_hidden and len(new_hidden) == len(self.columns):
+                messagebox.showwarning("Edit Columns", "At least one column must be visible.", parent=dlg)
                 return
-            for rec in self.records:
-                for col in to_remove:
-                    rec.pop(col, None)
-            self._rebuild_columns()
-            self._save()
+            self._set_hidden_columns(new_hidden)
             self._refresh_table()
-            self.status_var.set(f"Removed {len(to_remove)} column(s).")
+            shown = len(self.columns) - len(new_hidden)
+            self.status_var.set(f"Showing {shown} of {len(self.columns)} columns.")
             dlg.destroy()
 
         bf = tk.Frame(dlg)
         bf.pack(fill=tk.X, padx=12, pady=8)
-        tk.Button(bf, text="Remove", command=do_remove, width=10,
-                  bg="#c0392b", fg="white", relief=tk.FLAT).pack(side=tk.LEFT)
+        tk.Button(bf, text="Apply", command=do_apply, width=10,
+                  bg="#0078d4", fg="white", relief=tk.FLAT).pack(side=tk.LEFT)
         tk.Button(bf, text="Cancel", command=dlg.destroy, width=10,
                   relief=tk.FLAT).pack(side=tk.LEFT, padx=6)
         dlg.bind("<Escape>", lambda e: dlg.destroy())
@@ -553,7 +894,6 @@ class AdDatabaseApp(tk.Tk):
 
 
 if __name__ == "__main__":
-    import sys
     app = AdDatabaseApp()
     if len(sys.argv) > 1:
         folder = Path(sys.argv[1])

@@ -6,6 +6,6 @@ taskkill /F /FI "WINDOWTITLE eq Capture Server" >nul 2>&1
 
 REM 2. Start the capture server in a new PowerShell window (stays open).
 start "Capture Server" powershell -NoExit -Command ^
-  "python 'C:\Users\saeed\My Windows Feature Expansion Project\Facebook MarketPlace ad parser\Capture_server.py'"
+  "Set-Location '%~dp0'; python server/capture_server.py"
 
 exit

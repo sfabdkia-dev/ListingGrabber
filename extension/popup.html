@@ -27,12 +27,12 @@
     .server-row {
       padding: 8px 14px;
       display: flex;
-      align-items: center;
+      align-items: flex-start;
       gap: 6px;
       border-bottom: 1px solid #2a2a2a;
       font-size: 11px;
     }
-    .dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+    .dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; margin-top: 18px; }
     .dot.green { background: #4caf50; }
     .dot.red   { background: #f44336; }
     .dot.grey  { background: #666; }
@@ -47,7 +47,27 @@
       letter-spacing: 0.05em;
       color: #666;
       margin-bottom: 6px;
+      display: flex;
+      align-items: center;
+      gap: 5px;
     }
+    .info-icon {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 13px;
+      height: 13px;
+      border-radius: 50%;
+      border: 1px solid #555;
+      color: #666;
+      font-size: 9px;
+      font-style: normal;
+      font-weight: 700;
+      cursor: default;
+      flex-shrink: 0;
+      line-height: 1;
+    }
+    .info-icon:hover { border-color: #aaa; color: #aaa; }
 
     select {
       width: 100%;
@@ -215,16 +235,19 @@
 <body>
   <div class="header">
     <span class="logo">📷</span>
-    <span class="title">Ad Grabber</span>
+    <span class="title">Listing Grabber</span>
   </div>
 
   <div class="server-row">
     <div class="dot grey" id="dot"></div>
-    <span id="server-text">Connecting to server…</span>
+    <span id="server-text">Open <strong>Control Hub</strong> first. <br>Connecting to server…</span>
   </div>
 
   <div class="section">
-    <div class="section-label">Active Project</div>
+    <div class="section-label">
+      Active Project
+      <span class="info-icon" title="To create, rename, or switch projects, open the Control Hub app.">i</span>
+    </div>
     <div class="project-row">
       <select id="project-select" disabled>
         <option value="">Loading…</option>
@@ -239,15 +262,7 @@
     </div>
     <div class="add-panel" id="add-panel">
 
-      <div class="section-label" style="margin-top:4px;">Open existing folder</div>
-      <div class="add-row">
-        <input type="text" id="folder-path-input" placeholder="Paste full folder path…">
-        <button class="btn-sm primary" id="open-folder-btn">Open</button>
-      </div>
-
-      <div class="or-divider">— or create new —</div>
-
-      <div class="section-label">New project name</div>
+      <div class="section-label" style="margin-top:4px;">New project name</div>
       <div class="add-row">
         <input type="text" id="new-name-input" placeholder="e.g. Kitchen appliances">
         <button class="btn-sm primary" id="create-btn">Create</button>
@@ -255,20 +270,33 @@
       <div class="folder-path" id="new-project-hint">
         Will be created in: …/projects/&lt;name&gt;
       </div>
+
+      <div class="or-divider">— or open existing —</div>
+
+      <div class="section-label">Open existing folder</div>
+      <div class="add-row">
+        <input type="text" id="folder-path-input" placeholder="Paste full folder path…">
+        <button class="btn-sm primary" id="open-folder-btn">Open</button>
+      </div>
     </div>
   </div>
 
   <div class="section">
-    <label class="toggle-row" for="capture-html-toggle">
-      <div>
-        <div>Capture full HTML</div>
-        <div class="hint">Increases file size from ~30 KB to ~3 MB</div>
-      </div>
-      <label class="switch">
-        <input type="checkbox" id="capture-html-toggle">
-        <span class="slider"></span>
+    <div class="add-toggle" id="html-toggle">
+      <span class="arrow">▶</span> Advanced
+    </div>
+    <div class="add-panel" id="html-panel">
+      <label class="toggle-row" for="capture-html-toggle" style="margin-top:4px;">
+        <div>
+          <div>Capture full HTML</div>
+          <div class="hint">Increases file size from ~30 KB to ~3 MB</div>
+        </div>
+        <label class="switch">
+          <input type="checkbox" id="capture-html-toggle">
+          <span class="slider"></span>
+        </label>
       </label>
-    </label>
+    </div>
   </div>
 
   <div class="grab-area">

@@ -99,11 +99,15 @@ def parse_amazon_product(json_path):
             savings_idx = i
             break
 
-    # Fallback price: first standalone "$X.XX" line near buy-box markers
+    # Fallback price: first standalone "$X.XX" line near buy-box markers.
+    # Look only forward (not backward) so an adjacent sponsored product's delivery
+    # line cannot anchor the wrong price.  The buy-box pattern is always:
+    #   $X.XX  →  $X  →  .  →  XX  →  Tomorrow  →  FREE delivery …
+    # so the delivery keyword lands exactly 5 lines after the price (index i+5).
     if ad["price"] is None:
         for i, line in enumerate(lines):
             if _PRICE_RE.match(line):
-                window = " ".join(lines[max(0, i - 3):i + 5])
+                window = " ".join(lines[i:i + 6])
                 if any(k in window for k in ("delivery", "Add to cart", "In Stock", "Buy Now")):
                     ad["price"] = line
                     break

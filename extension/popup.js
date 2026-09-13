@@ -28,14 +28,19 @@ function clearStatusAfter(ms = 3500) {
   setTimeout(() => setStatus(""), ms);
 }
 
-// ── collapsible toggle ────────────────────────────────────────────────────────
+// -- collapsible toggles -------------------------------------------------------
 
 addToggle.addEventListener("click", () => {
   addToggle.classList.toggle("open");
   addPanel.classList.toggle("open");
 });
 
-// ── load current project + recent list ───────────────────────────────────────
+document.getElementById("html-toggle").addEventListener("click", () => {
+  document.getElementById("html-toggle").classList.toggle("open");
+  document.getElementById("html-panel").classList.toggle("open");
+});
+
+// -- load current project + recent list ---------------------------------------
 
 async function loadState() {
   try {
@@ -56,16 +61,16 @@ async function loadState() {
     newProjectHint.textContent = "Will be created in: " + defaultProjectsPath + "/<name>";
 
     populateDropdown(active, recent_projects);
-    capturesPath.textContent = active.captures_dir || "—";
+    capturesPath.textContent = active.captures_dir || "-";
 
-  } catch {
+  } catch (e) {
     dot.className = "dot red";
-    serverText.textContent = "Server not running — start Capture_server.py";
+    serverText.textContent = "Server not running - open the Launch_Hub shortcut";
     serverOnline = false;
     grabBtn.disabled = true;
     projectSelect.disabled = true;
-    projectSelect.innerHTML = '<option value="">—</option>';
-    capturesPath.textContent = "—";
+    projectSelect.innerHTML = '<option value="">-</option>';
+    capturesPath.textContent = "-";
   }
 }
 
@@ -86,13 +91,13 @@ function populateDropdown(active, projects) {
   }
 }
 
-// ── refresh: rescan the projects folder on demand ────────────────────────────
+// -- refresh: rescan the projects folder on demand ----------------------------
 
 refreshBtn.addEventListener("click", async () => {
   if (!serverOnline) return;
   refreshBtn.disabled = true;
   refreshBtn.classList.add("spinning");
-  setStatus("Rescanning projects folder…");
+  setStatus("Rescanning projects folder...");
   try {
     const [statusRes, scanRes] = await Promise.all([
       fetch(SERVER),
@@ -101,9 +106,9 @@ refreshBtn.addEventListener("click", async () => {
     const active = await statusRes.json();
     const { recent_projects } = await scanRes.json();
     populateDropdown(active, recent_projects);
-    setStatus(`✓ Found ${recent_projects.length} project(s)`, "ok");
+    setStatus(` Found ${recent_projects.length} project(s)`, "ok");
   } catch (e) {
-    setStatus("✗ " + e.message, "err");
+    setStatus("X " + e.message, "err");
   } finally {
     refreshBtn.classList.remove("spinning");
     refreshBtn.disabled = false;
@@ -111,12 +116,12 @@ refreshBtn.addEventListener("click", async () => {
   }
 });
 
-// ── switch project via dropdown ───────────────────────────────────────────────
+// -- switch project via dropdown -----------------------------------------------
 
 projectSelect.addEventListener("change", async () => {
   const path = projectSelect.value;
   if (!path) return;
-  setStatus("Switching project…");
+  setStatus("Switching project...");
   try {
     const res  = await fetch(SERVER + "/set-project", {
       method: "POST",
@@ -125,24 +130,24 @@ projectSelect.addEventListener("change", async () => {
     });
     const data = await res.json();
     if (data.ok) {
-      capturesPath.textContent = data.captures_dir || "—";
-      setStatus(`✓ Switched to "${data.name}"`, "ok");
+      capturesPath.textContent = data.captures_dir || "-";
+      setStatus(` Switched to "${data.name}"`, "ok");
     } else {
-      setStatus("✗ " + (data.error || "Failed"), "err");
+      setStatus("X " + (data.error || "Failed"), "err");
     }
   } catch (e) {
-    setStatus("✗ " + e.message, "err");
+    setStatus("X " + e.message, "err");
   }
   clearStatusAfter();
 });
 
-// ── open existing folder ──────────────────────────────────────────────────────
+// -- open existing folder ------------------------------------------------------
 
 openFolderBtn.addEventListener("click", async () => {
   const path = folderInput.value.trim();
-  if (!path) { setStatus("✗ Enter a folder path first", "err"); clearStatusAfter(); return; }
+  if (!path) { setStatus("X Enter a folder path first", "err"); clearStatusAfter(); return; }
 
-  setStatus("Opening folder…");
+  setStatus("Opening folder...");
   try {
     const res  = await fetch(SERVER + "/set-project", {
       method: "POST",
@@ -151,7 +156,7 @@ openFolderBtn.addEventListener("click", async () => {
     });
     const data = await res.json();
     if (data.ok) {
-      capturesPath.textContent = data.captures_dir || "—";
+      capturesPath.textContent = data.captures_dir || "-";
       folderInput.value = "";
       // Add to dropdown if not already there
       if (![...projectSelect.options].some(o => o.value === data.path)) {
@@ -159,28 +164,28 @@ openFolderBtn.addEventListener("click", async () => {
         projectSelect.insertBefore(opt, projectSelect.firstChild);
       }
       projectSelect.value = data.path;
-      setStatus(`✓ Opened "${data.name}"`, "ok");
+      setStatus(` Opened "${data.name}"`, "ok");
       addToggle.classList.remove("open");
       addPanel.classList.remove("open");
     } else {
-      setStatus("✗ " + (data.error || "Folder not found"), "err");
+      setStatus("X " + (data.error || "Folder not found"), "err");
     }
   } catch (e) {
-    setStatus("✗ " + e.message, "err");
+    setStatus("X " + e.message, "err");
   }
   clearStatusAfter();
 });
 
 folderInput.addEventListener("keydown", e => { if (e.key === "Enter") openFolderBtn.click(); });
 
-// ── create new project ────────────────────────────────────────────────────────
+// -- create new project --------------------------------------------------------
 
 createBtn.addEventListener("click", async () => {
   const name = newNameInput.value.trim();
-  if (!name) { setStatus("✗ Enter a project name", "err"); clearStatusAfter(); return; }
+  if (!name) { setStatus("X Enter a project name", "err"); clearStatusAfter(); return; }
 
   createBtn.disabled = true;
-  setStatus("Creating project…");
+  setStatus("Creating project...");
   try {
     const res  = await fetch(SERVER + "/new-project", {
       method: "POST",
@@ -189,7 +194,7 @@ createBtn.addEventListener("click", async () => {
     });
     const data = await res.json();
     if (data.ok) {
-      capturesPath.textContent = data.captures_dir || "—";
+      capturesPath.textContent = data.captures_dir || "-";
       newNameInput.value = "";
       // Add to dropdown and select it
       if (![...projectSelect.options].some(o => o.value === data.path)) {
@@ -197,14 +202,14 @@ createBtn.addEventListener("click", async () => {
         projectSelect.insertBefore(opt, projectSelect.firstChild);
       }
       projectSelect.value = data.path;
-      setStatus(`✓ Created "${data.name}"`, "ok");
+      setStatus(` Created "${data.name}"`, "ok");
       addToggle.classList.remove("open");
       addPanel.classList.remove("open");
     } else {
-      setStatus("✗ " + (data.error || "Failed"), "err");
+      setStatus("X " + (data.error || "Failed"), "err");
     }
   } catch (e) {
-    setStatus("✗ " + e.message, "err");
+    setStatus("X " + e.message, "err");
   } finally {
     createBtn.disabled = false;
   }
@@ -213,13 +218,32 @@ createBtn.addEventListener("click", async () => {
 
 newNameInput.addEventListener("keydown", e => { if (e.key === "Enter") createBtn.click(); });
 
-// ── grab page ────────────────────────────────────────────────────────────────
+// -- URL validation -----------------------------------------------------------
+
+const SUPPORTED_PATTERNS = [
+  { label: "Facebook Marketplace", test: url => /facebook\.com\/marketplace\/item\//i.test(url) },
+  { label: "Amazon product",       test: url => /amazon\.[a-z.]+/i.test(url) && /\/dp\/|\/gp\/product\//i.test(url) },
+];
+
+function getSupportedSite(url) {
+  return SUPPORTED_PATTERNS.find(p => p.test(url)) || null;
+}
+
+// -- grab page ----------------------------------------------------------------
 
 grabBtn.addEventListener("click", async () => {
   grabBtn.disabled = true;
-  setStatus("Grabbing page…");
+  setStatus("Grabbing page...");
   try {
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+
+    if (!getSupportedSite(tab.url || "")) {
+      setStatus("X Not a supported page. Open the product page of a supported website.", "err");
+      clearStatusAfter(5000);
+      grabBtn.disabled = false;
+      return;
+    }
+
     const { captureHtml } = await chrome.storage.local.get({ captureHtml: false });
     const [{ result: payload }] = await chrome.scripting.executeScript({
       target: { tabId: tab.id },
@@ -238,19 +262,19 @@ grabBtn.addEventListener("click", async () => {
       body: JSON.stringify(payload),
     });
     if (res.ok) {
-      setStatus("✓ Page captured!", "ok");
+      setStatus(" Page captured!", "ok");
     } else {
       throw new Error("Server returned " + res.status);
     }
   } catch (e) {
-    setStatus("✗ " + e.message, "err");
+    setStatus("X " + e.message, "err");
   } finally {
     grabBtn.disabled = false;
     clearStatusAfter(4000);
   }
 });
 
-// ── capture-html toggle ───────────────────────────────────────────────────────
+// -- capture-html toggle -------------------------------------------------------
 
 chrome.storage.local.get({ captureHtml: false }, ({ captureHtml }) => {
   captureHtmlToggle.checked = captureHtml;
@@ -260,6 +284,6 @@ captureHtmlToggle.addEventListener("change", () => {
   chrome.storage.local.set({ captureHtml: captureHtmlToggle.checked });
 });
 
-// ── init ──────────────────────────────────────────────────────────────────────
+// -- init ----------------------------------------------------------------------
 
 loadState();
