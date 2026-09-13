@@ -98,7 +98,7 @@ def discover_all_projects(settings):
     recent = [r for r in settings.get("recent_projects", []) if Path(r["path"]).is_dir()]
     recent_paths = {r["path"] for r in recent}
     discovered = []
-    projects_dir = APP_DIR / "projects"
+    projects_dir = APP_DIR / "My projects"
     if projects_dir.exists():
         for d in sorted(projects_dir.iterdir()):
             if not d.is_dir() or str(d) in recent_paths:
@@ -512,7 +512,7 @@ class AdDatabaseApp(tk.Tk):
                 self._load_project(p, silent=True)
                 return
 
-        default_dir = APP_DIR / "projects" / "default"
+        default_dir = APP_DIR / "My projects" / "default"
         if (default_dir / "ads_database.jsonl").exists() or default_dir.exists():
             self._load_project(default_dir, silent=True)
 
@@ -521,7 +521,7 @@ class AdDatabaseApp(tk.Tk):
         if not name or not name.strip():
             return
         name = name.strip()
-        folder = create_project_folder(name, APP_DIR / "projects")
+        folder = create_project_folder(name, APP_DIR / "My projects")
         self._load_project(folder)
 
     def _open_project(self):

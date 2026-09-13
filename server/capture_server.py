@@ -9,7 +9,7 @@ import pathlib
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
 APP_DIR = pathlib.Path(__file__).resolve().parent.parent
-PROJECTS_DIR = APP_DIR / "projects"
+PROJECTS_DIR = APP_DIR / "My projects"
 CONFIG_FILE = APP_DIR / "active_project.json"
 SETTINGS_FILE = APP_DIR / "app_settings.json"
 

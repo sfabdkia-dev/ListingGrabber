@@ -27,7 +27,7 @@ def get_project_paths(project_arg=None):
             return Path(cfg["captures_dir"]), Path(cfg["database_file"]), cfg.get("name", "Default")
         except Exception:
             pass
-    default = APP_DIR / "projects" / "default"
+    default = APP_DIR / "My projects" / "default"
     return default, default / "ads_database.jsonl", "Default"
 
 

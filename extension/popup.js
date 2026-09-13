@@ -57,7 +57,7 @@ async function loadState() {
     grabBtn.disabled = false;
 
     // Derive default projects parent from active project path for the hint
-    defaultProjectsPath = (active.path || "").replace(/[/\\][^/\\]+$/, "") + "/projects";
+    defaultProjectsPath = (active.path || "").replace(/[/\\][^/\\]+$/, "") + "/My projects";
     newProjectHint.textContent = "Will be created in: " + defaultProjectsPath + "/<name>";
 
     populateDropdown(active, recent_projects);

@@ -16,7 +16,7 @@ Two-part tool for scraping and parsing Facebook Marketplace ads:
 server/          entry-point scripts (capture_server, hub, process_captures)
 parsers/         parser modules (marketplace, amazon, router)
 extension/       Chrome extension (Manifest V3)
-projects/        gitignored — project folders created at runtime
+My projects/     gitignored — project folders created at runtime
 ```
 
 Runtime state files (`active_project.json`, `app_settings.json`) are gitignored; copy `app_settings.template.json` → `app_settings.json` on a fresh clone if needed.
@@ -36,7 +36,7 @@ Or double-click `start_server.bat`.
 
 Parse a captured file directly:
 ```
-python parsers/parse_marketplace.py projects/<name>/<timestamp>_capture.json
+python parsers/parse_marketplace.py "My projects/<name>/<timestamp>_capture.json"
 ```
 
 ## Capture file format
