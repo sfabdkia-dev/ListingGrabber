@@ -50,14 +50,14 @@ Chrome Extension  ──── POST JSON ────►  Capture Server (port 9
                                                ▼
                                         Active Project Folder
                                                │
-                                               │  parse_router.py  (detects site from URL)
+                                               │  parse_router.py  (detects website from URL)
                                                ▼
-                                    ┌──────────────────────┐
-                                    │  Facebook Marketplace │  or  │  Amazon  │
-                                    └──────────────────────┘
+                                 ┌──────────────────────────────┐
+                                 │  Pase the data using parsers │   (e.g., parse_amazon.py)
+                                 └──────────────────────────────┘
                                                │
                                                ▼
-                                        ads_database.jsonl
+                                        ads_database.jsonl (extracted database)
 ```
 
 The extension grabs the tab's URL, title, and page text (`innerText`), then POSTs them to the local server. The router inspects the URL and dispatches to the correct parser. The result is appended to the project's JSONL database and shown in the Control Hub.
@@ -66,11 +66,11 @@ The extension grabs the tab's URL, title, and page text (`innerText`), then POST
 
 ## Supported Sites
 
-| Site                 | Status    |
-|----------------------|-----------|
-| Facebook Marketplace | Supported |
-| Amazon               | Supported |
-| Others               | Planned   |
+| Site                 |    Status    |
+|----------------------|--------------|
+| Facebook Marketplace | Supported    |
+| Amazon               | Supported    |
+| Others               | send request |
 
 ---
 
@@ -203,4 +203,24 @@ The capture format (`capturedAt`, `url`, `title`, `html`, `text`) is the same fo
 
 ## License
 
-MIT
+MIT License
+
+Copyright (c) [2026] [Saeed AM.]
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
