@@ -1,6 +1,5 @@
 My projects/*
 !My projects/.gitkeep
-projects/
 __pycache__/
 *.pyc
 active_project.json
